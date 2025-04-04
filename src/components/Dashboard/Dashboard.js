@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from "react";
 import { auth, db } from "../../firebase/config";
 import { signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
+import Transactions from "../Transactions/Transactions";
 import "./Dashboard.css";
 
 // Componente principal do Dashboard
@@ -11,6 +12,9 @@ const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [categoriesData, setCategoriesData] = useState(null);
+  const [recentTransactions, setRecentTransactions] = useState([]);
+  const [activeTab, setActiveTab] = useState("categories"); // 'categories' ou 'transactions'
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -26,8 +30,31 @@ const Dashboard = () => {
             const data = userCategoriesDoc.data();
             setCategoriesData(data);
           }
+          
+          // Buscar transações recentes para o usuário atual
+          const transactionsQuery = query(
+            collection(db, "transactions"),
+            where("userId", "==", auth.currentUser.uid),
+            orderBy("date", "desc"),
+            limit(5)
+          );
+          
+          const transactionsSnapshot = await getDocs(transactionsQuery);
+          const transactionsData = [];
+          
+          transactionsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            transactionsData.push({
+              id: doc.id,
+              ...data,
+              date: data.date.toDate()
+            });
+          });
+          
+          setRecentTransactions(transactionsData);
         } catch (error) {
-          console.error("Erro ao buscar categorias:", error);
+          console.error("Erro ao buscar dados:", error);
+          setError("Houve um erro ao carregar seus dados. Por favor, tente novamente.");
         }
       }
       
@@ -102,6 +129,19 @@ const Dashboard = () => {
     };
   };
 
+  // Formatar valor monetário
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  };
+
+  // Formatar data
+  const formatDate = (date) => {
+    return new Intl.DateTimeFormat('pt-BR').format(date);
+  };
+
   if (loading) {
     return <div className="loading">Carregando...</div>;
   }
@@ -120,72 +160,140 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <div className="dashboard-content">
-        <div className="dashboard-card">
-          <h2>Suas Categorias Financeiras</h2>
-          
-          {totalCategories === 0 ? (
-            <div className="no-categories">
-              <p>Você ainda não selecionou nenhuma categoria.</p>
-              <button 
-                className="select-categories-button"
-                onClick={() => navigate("/select-categories")}
-              >
-                Selecionar Categorias
-              </button>
-            </div>
-          ) : (
-            <>
-              <p className="categories-count">
-                Você selecionou {totalCategories} categorias.
-              </p>
-              
-              <div className="categories-container">
-                {Object.entries(groupedCategories)
-                  .sort(([, dataA], [, dataB]) => {
-                    // Ordenar pelo campo order que adicionamos
-                    return dataA.order - dataB.order;
-                  })
-                  .map(([groupName, groupData], index) => (
-                    <div key={index} className="category-group">
-                      <h3>{groupName}</h3>
-                      
-                      {/* Categorias normais (sem subgrupo) */}
-                      {groupData.normalCategories.length > 0 && (
-                        <ul className="category-list">
-                          {groupData.normalCategories.map((category, catIndex) => (
-                            <li key={catIndex} className="category-item">{category}</li>
-                          ))}
-                        </ul>
-                      )}
-                      
-                      {/* Categorias com subgrupos */}
-                      {Object.entries(groupData.subGroups).map(([subGroupName, categories], subIndex) => (
-                        <div key={subIndex} className="category-subgroup-section">
-                          <h4>{subGroupName}</h4>
+      {error && (
+        <div className="error-message" style={{ 
+          padding: '10px', 
+          backgroundColor: '#ffebee', 
+          color: '#c62828',
+          borderRadius: '4px',
+          marginBottom: '20px' 
+        }}>
+          {error}
+        </div>
+      )}
+
+      <div className="dashboard-tabs">
+        <button 
+          className={`tab-button ${activeTab === 'categories' ? 'active' : ''}`}
+          onClick={() => setActiveTab('categories')}
+        >
+          Categorias
+        </button>
+        <button 
+          className={`tab-button ${activeTab === 'transactions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('transactions')}
+        >
+          Transações
+        </button>
+      </div>
+
+      {activeTab === 'categories' ? (
+        <div className="dashboard-content">
+          <div className="dashboard-card">
+            <h2>Suas Categorias Financeiras</h2>
+            
+            {totalCategories === 0 ? (
+              <div className="no-categories">
+                <p>Você ainda não selecionou nenhuma categoria.</p>
+                <button 
+                  className="select-categories-button"
+                  onClick={() => navigate("/select-categories")}
+                >
+                  Selecionar Categorias
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="categories-count">
+                  Você selecionou {totalCategories} categorias.
+                </p>
+                
+                <div className="categories-container">
+                  {Object.entries(groupedCategories)
+                    .sort(([, dataA], [, dataB]) => {
+                      // Ordenar pelo campo order que adicionamos
+                      return dataA.order - dataB.order;
+                    })
+                    .map(([groupName, groupData], index) => (
+                      <div key={index} className="category-group">
+                        <h3>{groupName}</h3>
+                        
+                        {/* Categorias normais (sem subgrupo) */}
+                        {groupData.normalCategories.length > 0 && (
                           <ul className="category-list">
-                            {categories.map((category, catIndex) => (
+                            {groupData.normalCategories.map((category, catIndex) => (
                               <li key={catIndex} className="category-item">{category}</li>
                             ))}
                           </ul>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-              </div>
-              
-              <div className="edit-categories">
+                        )}
+                        
+                        {/* Categorias com subgrupos */}
+                        {Object.entries(groupData.subGroups).map(([subGroupName, categories], subIndex) => (
+                          <div key={subIndex} className="category-subgroup-section">
+                            <h4>{subGroupName}</h4>
+                            <ul className="category-list">
+                              {categories.map((category, catIndex) => (
+                                <li key={catIndex} className="category-item">{category}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                </div>
+                
+                <div className="edit-categories">
+                  <button 
+                    className="edit-categories-button"
+                    onClick={() => navigate("/select-categories")}
+                  >
+                    Editar Categorias
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {recentTransactions.length > 0 && (
+            <div className="dashboard-card">
+              <h2>Transações Recentes</h2>
+              <div className="recent-transactions">
+                <table className="transactions-table">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Descrição</th>
+                      <th>Categoria</th>
+                      <th>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentTransactions.map((transaction) => (
+                      <tr key={transaction.id}>
+                        <td>{formatDate(transaction.date)}</td>
+                        <td>{transaction.description}</td>
+                        <td>{transaction.category}</td>
+                        <td className={transaction.amount >= 0 ? 'amount-positive' : 'amount-negative'}>
+                          {formatCurrency(transaction.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
                 <button 
-                  className="edit-categories-button"
-                  onClick={() => navigate("/select-categories")}
+                  className="view-all-button"
+                  onClick={() => setActiveTab('transactions')}
                 >
-                  Editar Categorias
+                  Ver Todas as Transações
                 </button>
               </div>
-            </>
+            </div>
           )}
         </div>
-      </div>
+      ) : (
+        <Transactions />
+      )}
     </div>
   );
 };
