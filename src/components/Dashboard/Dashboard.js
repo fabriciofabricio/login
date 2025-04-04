@@ -56,6 +56,8 @@ const Dashboard = () => {
     }
 
     const categories = categoriesData.categories;
+    const categoryOrder = categoriesData.categoryOrder || {};
+    
     const selectedKeys = Object.keys(categories).filter(key => categories[key] === true);
     const groupedCategories = {};
 
@@ -68,9 +70,12 @@ const Dashboard = () => {
       
       // Inicializar o grupo se não existir
       if (!groupedCategories[groupName]) {
+        // Usar a ordem se disponível, ou um número alto para categorias sem ordem
+        const order = categoryOrder[groupName] || 999;
         groupedCategories[groupName] = {
           normalCategories: [],
-          subGroups: {}
+          subGroups: {},
+          order: order
         };
       }
       
@@ -137,13 +142,9 @@ const Dashboard = () => {
               
               <div className="categories-container">
                 {Object.entries(groupedCategories)
-                  .sort(([groupA], [groupB]) => {
-                    // Extrair números dos nomes dos grupos para ordenação
-                    const getNumber = (str) => {
-                      const match = str.match(/^(\d+)/);
-                      return match ? parseInt(match[1]) : 999;
-                    };
-                    return getNumber(groupA) - getNumber(groupB);
+                  .sort(([, dataA], [, dataB]) => {
+                    // Ordenar pelo campo order que adicionamos
+                    return dataA.order - dataB.order;
                   })
                   .map(([groupName, groupData], index) => (
                     <div key={index} className="category-group">

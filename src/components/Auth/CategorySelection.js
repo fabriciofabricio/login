@@ -14,102 +14,142 @@ const CategorySelection = () => {
   const [selectedCategories, setSelectedCategories] = useState({});
   const [currentStep, setCurrentStep] = useState(0);
 
-  // Estrutura de categorias financeiras
+  // Estrutura de categorias financeiras com ordem explícita
   const financialCategories = {
-    "RECEITA BRUTA": [
-      "Dinheiro",
-      "Cheque",
-      "Boleto",
-      "Transferência",
-      "Cartão / Pix / TED",
-      "Ifood",
-      "Outras Entradas"
-    ],
-    "(-) DEDUÇÕES DA RECEITA": [
-      "ISS",
-      "ICMS",
-      "PIS/COFINS"
-    ],
-    "(+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS": [
-      "Resgate de Aplicação",
-      "Empréstimo",
-      "Aporte de Sócio"
-    ],
-    "(-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)": [
-      "Insumos e ingredientes",
-      "Doces",
-      "Carnes",
-      "Bebidas",
-      "Vinho",
-      "Chopp",
-      "Hortifrúti",
-      "Café"
-    ],
-    "(-) DESPESAS OPERACIONAIS": [
-        "DAS",
-        "Contabilidade",
-        "Consultoria / Assessoria",
-        "Advogado",
-        "Segurança",
-        "Sistema",
-        "Despesa Bancária",
-        "Despesa Financeira",
-        "Correio / Cartório",
-        "Outras Despesas ADM",
-        "Aluguel",
-        "Condomínio",
-        "Energia Elétrica",
-        "Gás",
-        "Água / Esgoto (Sanepar)",
-        "Internet",
-        "Telefone e TV a Cabo",
-        "Estacionamento",
-        "Equipamentos",
+    "1. RECEITA BRUTA": {
+      order: 1,
+      displayName: "RECEITA BRUTA",
+      items: [
+        "Dinheiro",
+        "Cheque",
+        "Boleto",
+        "Transferência",
+        "Cartão / Pix / TED",
+        "Ifood",
+        "Outras Entradas"
+      ]
+    },
+    "2. (-) DEDUÇÕES DA RECEITA": {
+      order: 2,
+      displayName: "(-) DEDUÇÕES DA RECEITA",
+      items: [
+        "ISS",
+        "ICMS",
+        "PIS/COFINS"
+      ]
+    },
+    "4. (+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS": {
+      order: 3,
+      displayName: "(+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS",
+      items: [
+        "Resgate de Aplicação",
+        "Empréstimo",
+        "Aporte de Sócio"
+      ]
+    },
+    "5. (-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)": {
+      order: 4,
+      displayName: "(-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)",
+      items: [
+        "Insumos e ingredientes",
+        "Doces",
+        "Carnes",
+        "Bebidas",
+        "Vinho",
+        "Chopp",
+        "Hortifrúti",
+        "Café"
+      ]
+    },
+    "7. (-) DESPESAS OPERACIONAIS": {
+      order: 5,
+      displayName: "(-) DESPESAS OPERACIONAIS",
+      items: [
+          "DAS",
+          "Contabilidade",
+          "Consultoria / Assessoria",
+          "Advogado",
+          "Segurança",
+          "Sistema",
+          "Despesa Bancária",
+          "Despesa Financeira",
+          "Correio / Cartório",
+          "Outras Despesas ADM",
+          "Aluguel",
+          "Condomínio",
+          "Energia Elétrica",
+          "Gás",
+          "Água / Esgoto (Sanepar)",
+          "Internet",
+          "Telefone e TV a Cabo",
+          "Estacionamento",
+          "Equipamentos",
+          "Informática",
+          "Predial",
+          "Móveis e Utensílios",
+          "Dedetização",
+          "Propaganda e Publicidade",
+          "Serviços Gráficos",
+          "Material de Escritório",
+          "Embalagem / Descartáveis",
+          "Limpeza / Higiene",
+          "Materiais de Reposição",
+          "Salário",
+          "Adiantamento",
+          "Free-lance / Taxa",
+          "13º Salário",
+          "Férias + Abono",
+          "Rescisão Contratual",
+          "Vale Transporte",
+          "Exame Médico",
+          "FGTS",
+          "Contribuição Sindical",
+          "Refeição Funcionário",
+          "INSS",
+          "Treinamento",
+          "Uniforme",
+          "Farmácia",
+          "Artístico",
+          "Outras Despesas RH",
+          "Locação de Equipamentos",
+          "Aquisição de Equipamentos"
+      ]
+    },
+    "8. (-) DESPESAS COM SÓCIOS": {
+      order: 6,
+      displayName: "(-) DESPESAS COM SÓCIOS",
+      items: [
+        "Despesas de Sócios",
+        "Pró-labore",
+        "Imposto de Renda Pessoa Física"
+      ]
+    },
+    "9. (-) INVESTIMENTOS": {
+      order: 7,
+      displayName: "(-) INVESTIMENTOS",
+      items: [
+        "Obras e Instalações",
         "Informática",
-        "Predial",
-        "Móveis e Utensílios",
-        "Dedetização",
-        "Propaganda e Publicidade",
-        "Serviços Gráficos",
-        "Material de Escritório",
-        "Embalagem / Descartáveis",
-        "Limpeza / Higiene",
-        "Materiais de Reposição",
-        "Salário",
-        "Adiantamento",
-        "Free-lance / Taxa",
-        "13º Salário",
-        "Férias + Abono",
-        "Rescisão Contratual",
-        "Vale Transporte",
-        "Exame Médico",
-        "FGTS",
-        "Contribuição Sindical",
-        "Refeição Funcionário",
-        "INSS",
-        "Treinamento",
-        "Uniforme",
-        "Farmácia",
-        "Artístico",
-        "Outras Despesas RH",
-        "Locação de Equipamentos",
-        "Aquisição de Equipamentos"
-    ],
-    "(-) DESPESAS COM SÓCIOS": [
-      "Despesas de Sócios",
-      "Pró-labore",
-      "Imposto de Renda Pessoa Física"
-    ],
-    "(-) INVESTIMENTOS": [
-      "Obras e Instalações",
-      "Informática",
-      "Equipamentos / Aplicações em Fundos"
-    ]
+        "Equipamentos / Aplicações em Fundos"
+      ]
+    }
   };
 
   // Converter o objeto de categorias em um array para facilitar a navegação
   const categoryGroups = Object.keys(financialCategories);
   const totalSteps = categoryGroups.length;
+  
+  // Efeito para resetar a posição de rolagem quando mudar de etapa
+  useEffect(() => {
+    // Rolar para o topo da página
+    window.scrollTo(0, 0);
+    
+    // Também resetar a rolagem do container de categorias se ele tiver uma referência
+    const categoriesContainer = document.querySelector('.category-list.single-page');
+    if (categoriesContainer) {
+      categoriesContainer.scrollTop = 0;
+    }
+  }, [currentStep]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -147,9 +187,11 @@ const CategorySelection = () => {
 
   const handleCategoryToggle = (category) => {
     const currentGroup = categoryGroups[currentStep];
+    const displayName = financialCategories[currentGroup].displayName;
     
     setSelectedCategories(prev => {
-      const path = `${currentGroup}.${category}`;
+      // Usar o nome sem o prefixo numérico para armazenamento
+      const path = `${displayName}.${category}`;
       
       return {
         ...prev,
@@ -185,11 +227,19 @@ const CategorySelection = () => {
         }
       });
 
+      // Armazenar metadata para ajudar na ordenação
+      const categoryOrderData = {};
+      Object.keys(financialCategories).forEach(groupKey => {
+        const { displayName, order } = financialCategories[groupKey];
+        categoryOrderData[displayName] = order;
+      });
+
       console.log("Salvando categorias para o usuário:", currentUser.uid);
       
       // Salvar no Firestore
       await setDoc(doc(db, "userCategories", currentUser.uid), {
         categories: categoriesToSave,
+        categoryOrder: categoryOrderData,
         createdAt: new Date()
       });
 
@@ -241,7 +291,7 @@ const CategorySelection = () => {
 
   // Obter o grupo e categorias atuais
   const currentGroup = categoryGroups[currentStep];
-  const currentCategories = financialCategories[currentGroup];
+  const currentCategories = financialCategories[currentGroup].items;
 
   return (
     <div className="category-selection-container">
@@ -272,7 +322,7 @@ const CategorySelection = () => {
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
-                    checked={!!selectedCategories[`${currentGroup}.${category}`]}
+                    checked={!!selectedCategories[`${financialCategories[currentGroup].displayName}.${category}`]}
                     onChange={() => handleCategoryToggle(category)}
                   />
                   {category}
