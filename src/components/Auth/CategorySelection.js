@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../firebase/config";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import "./CategorySelection.css";
 
@@ -12,10 +12,11 @@ const CategorySelection = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState({});
+  const [currentStep, setCurrentStep] = useState(0);
 
   // Estrutura de categorias financeiras
   const financialCategories = {
-    "1. RECEITA BRUTA": [
+    "RECEITA BRUTA": [
       "Dinheiro",
       "Cheque",
       "Boleto",
@@ -24,17 +25,17 @@ const CategorySelection = () => {
       "Ifood",
       "Outras Entradas"
     ],
-    "2. (-) DEDUÇÕES DA RECEITA": [
+    "(-) DEDUÇÕES DA RECEITA": [
       "ISS",
       "ICMS",
       "PIS/COFINS"
     ],
-    "4. (+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS": [
+    "(+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS": [
       "Resgate de Aplicação",
       "Empréstimo",
       "Aporte de Sócio"
     ],
-    "5. (-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)": [
+    "(-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)": [
       "Insumos e ingredientes",
       "Doces",
       "Carnes",
@@ -44,7 +45,7 @@ const CategorySelection = () => {
       "Hortifrúti",
       "Café"
     ],
-    "7. (-) DESPESAS OPERACIONAIS": [
+    "(-) DESPESAS OPERACIONAIS": [
         "DAS",
         "Contabilidade",
         "Consultoria / Assessoria",
@@ -94,40 +95,61 @@ const CategorySelection = () => {
         "Locação de Equipamentos",
         "Aquisição de Equipamentos"
     ],
-    "8. (-) DESPESAS COM SÓCIOS": [
+    "(-) DESPESAS COM SÓCIOS": [
       "Despesas de Sócios",
       "Pró-labore",
       "Imposto de Renda Pessoa Física"
     ],
-    "9. (-) INVESTIMENTOS": [
+    "(-) INVESTIMENTOS": [
       "Obras e Instalações",
       "Informática",
       "Equipamentos / Aplicações em Fundos"
     ]
   };
 
+  // Converter o objeto de categorias em um array para facilitar a navegação
+  const categoryGroups = Object.keys(financialCategories);
+  const totalSteps = categoryGroups.length;
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+        // Carregar categorias previamente selecionadas pelo usuário
+        loadUserCategories(currentUser.uid);
       } else {
         navigate("/login");
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
   }, [navigate]);
+  
+  // Função para carregar as categorias do usuário do Firestore
+  const loadUserCategories = async (userId) => {
+    try {
+      const userCategoriesDoc = await getDoc(doc(db, "userCategories", userId));
+      
+      if (userCategoriesDoc.exists()) {
+        const data = userCategoriesDoc.data();
+        
+        if (data.categories) {
+          console.log("Categorias carregadas:", data.categories);
+          setSelectedCategories(data.categories);
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar categorias do usuário:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const handleCategoryToggle = (group, category, subGroup = null) => {
-    console.log(`Toggling: group=${group}, category=${category}, subGroup=${subGroup}`);
+  const handleCategoryToggle = (category) => {
+    const currentGroup = categoryGroups[currentStep];
     
     setSelectedCategories(prev => {
-      const path = subGroup 
-        ? `${group}.${subGroup}.${category}`
-        : `${group}.${category}`;
-      
-      console.log("Path:", path);
+      const path = `${currentGroup}.${category}`;
       
       return {
         ...prev,
@@ -192,69 +214,91 @@ const CategorySelection = () => {
     }
   };
 
-  const renderCategories = (categories, group, subGroup = null) => {
-    console.log(`Renderizando: group=${group}, subGroup=${subGroup}, isArray=${Array.isArray(categories)}`);
-    
-    if (Array.isArray(categories)) {
-      return (
-        <div className="category-list">
-          {categories.map((category, index) => (
-            <div key={index} className="category-item">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={subGroup 
-                    ? !!selectedCategories[`${group}.${subGroup}.${category}`]
-                    : !!selectedCategories[`${group}.${category}`]
-                  }
-                  onChange={() => handleCategoryToggle(group, category, subGroup)}
-                />
-                {category}
-              </label>
-            </div>
-          ))}
-        </div>
-      );
+  const handleNext = () => {
+    if (currentStep < totalSteps - 1) {
+      setCurrentStep(prevStep => prevStep + 1);
     } else {
-      return (
-        <div className="category-group">
-          {Object.keys(categories).map((subGroupName, index) => (
-            <div key={index} className="category-subgroup">
-              <h4>{subGroupName}</h4>
-              {renderCategories(categories[subGroupName], group, subGroupName)}
-            </div>
-          ))}
-        </div>
-      );
+      saveCategories();
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStep > 0) {
+      setCurrentStep(prevStep => prevStep - 1);
     }
   };
 
   if (loading) {
-    return <div className="loading">Carregando...</div>;
+    return (
+      <div className="category-selection-container">
+        <div className="category-selection-card loading-card">
+          <div className="loading-spinner"></div>
+          <p>Carregando suas categorias...</p>
+        </div>
+      </div>
+    );
   }
+
+  // Obter o grupo e categorias atuais
+  const currentGroup = categoryGroups[currentStep];
+  const currentCategories = financialCategories[currentGroup];
 
   return (
     <div className="category-selection-container">
       <div className="category-selection-card">
-        <h2>Selecione suas Categorias Financeiras</h2>
-        <p className="instruction">Marque as categorias que você deseja utilizar em sua conta.</p>
+        <div className="progress-bar-container">
+          <div className="progress-text">
+            Etapa {currentStep + 1} de {totalSteps}
+          </div>
+          <div className="progress-bar">
+            <div 
+              className="progress-fill" 
+              style={{ width: `${((currentStep + 1) / totalSteps) * 100}%` }}
+            ></div>
+          </div>
+        </div>
+        
+        <div className="step-heading">
+          <span className="step-number">Etapa {currentStep + 1}</span>
+          <h2 className="category-group-title">{currentGroup}</h2>
+        </div>
+        
+        <p className="instruction">Selecione as opções que você deseja utilizar:</p>
         
         <div className="categories-container">
-          {Object.keys(financialCategories).map((group, index) => (
-            <div key={index} className="category-group">
-              <h3>{group}</h3>
-              {renderCategories(financialCategories[group], group)}
-            </div>
-          ))}
+          <div className="category-list single-page">
+            {currentCategories.map((category, index) => (
+              <div key={index} className="category-item">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedCategories[`${currentGroup}.${category}`]}
+                    onChange={() => handleCategoryToggle(category)}
+                  />
+                  {category}
+                </label>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="button-container">
+        <div className="navigation-buttons">
           <button 
-            className="save-button" 
-            onClick={saveCategories} 
+            className="previous-button" 
+            onClick={handlePrevious} 
+            disabled={currentStep === 0}
+          >
+            Anterior
+          </button>
+          
+          <button 
+            className="next-button" 
+            onClick={handleNext}
             disabled={saving}
           >
-            {saving ? "Salvando..." : "Salvar e Continuar"}
+            {currentStep === totalSteps - 1 
+              ? (saving ? "Salvando..." : "Finalizar") 
+              : "Próximo"}
           </button>
         </div>
       </div>

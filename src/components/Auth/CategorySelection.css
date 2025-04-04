@@ -2,10 +2,10 @@
 .category-selection-container {
     display: flex;
     justify-content: center;
-    align-items: flex-start;
-    padding: 20px;
-    background-color: #f5f5f5;
+    align-items: center;
     min-height: 100vh;
+    background-color: #f5f5f5;
+    padding: 20px;
   }
   
   .category-selection-card {
@@ -14,68 +14,103 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     padding: 30px;
     width: 100%;
-    max-width: 800px;
-    margin-bottom: 40px;
+    max-width: 500px; /* Limitando a largura máxima */
+    animation: fadeIn 0.3s ease;
   }
   
-  .category-selection-card h2 {
-    color: #333;
-    text-align: center;
-    margin-bottom: 16px;
-  }
-  
-  .instruction {
-    text-align: center;
-    color: #666;
+  /* Estilos para a barra de progresso */
+  .progress-bar-container {
     margin-bottom: 30px;
   }
   
-  .categories-container {
-    max-height: 60vh;
-    overflow-y: auto;
-    padding-right: 15px;
-  }
-  
-  .category-group {
-    margin-bottom: 20px;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 15px;
-  }
-  
-  .category-group h3 {
-    color: #3367d6;
-    margin-bottom: 10px;
-    font-size: 18px;
-  }
-  
-  .category-subgroup {
-    margin-left: 20px;
-    margin-bottom: 10px;
-  }
-  
-  .category-subgroup h4 {
-    color: #555;
+  .progress-text {
+    text-align: right;
+    color: #4285f4;
+    font-weight: 500;
     margin-bottom: 8px;
-    font-size: 16px;
+    font-size: 14px;
   }
   
-  .category-list {
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background-color: #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  .progress-fill {
+    height: 100%;
+    background-color: #4285f4;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  
+  /* Título e número da etapa */
+  .step-heading {
+    text-align: center;
+    margin-bottom: 25px;
+    padding-top: 10px;
+  }
+  
+  .step-number {
+    display: inline-block;
+    padding: 6px 16px;
+    background-color: #4285f4;
+    color: white;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 15px;
+  }
+  
+  .category-group-title {
+    text-align: center;
+    color: #333;
+    font-size: 22px;
+    margin-top: 5px;
+    margin-bottom: 20px;
+  }
+  
+  .instruction {
+    text-align: left;
+    color: #666;
+    margin-bottom: 20px;
+    font-size: 15px;
+  }
+  
+  /* Ajustes para a lista de categorias */
+  .categories-container {
+    margin-bottom: 30px;
+  }
+  
+  .category-list.single-page {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 10px;
+    flex-direction: column;
+    max-height: 300px; /* Altura fixa para evitar layout instável */
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 10px;
   }
   
-  .category-item {
-    flex: 0 0 calc(33.333% - 10px);
-    min-width: 200px;
+  .single-page .category-item {
+    flex: 0 0 auto;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f5f5f5;
+  }
+  
+  .single-page .category-item:last-child {
+    margin-bottom: 0;
+    border-bottom: none;
   }
   
   .checkbox-label {
     display: flex;
     align-items: center;
     cursor: pointer;
-    padding: 8px;
+    padding: 8px 10px;
     border-radius: 4px;
     transition: background-color 0.2s;
   }
@@ -85,60 +120,98 @@
   }
   
   .checkbox-label input {
-    margin-right: 10px;
+    margin-right: 12px;
     width: 18px;
     height: 18px;
   }
   
-  .button-container {
+  /* Botões de navegação */
+  .navigation-buttons {
     display: flex;
-    justify-content: center;
-    margin-top: 30px;
+    justify-content: space-between;
+    margin-top: 20px;
   }
   
-  .save-button {
+  .previous-button, 
+  .next-button {
     background-color: #4285f4;
     color: white;
     border: none;
     border-radius: 4px;
+    padding: 12px 0;
     font-size: 16px;
     font-weight: 500;
-    padding: 12px 24px;
     cursor: pointer;
     transition: background-color 0.3s;
+    width: 48%;
   }
   
-  .save-button:hover {
+  .previous-button:hover, 
+  .next-button:hover {
     background-color: #3367d6;
   }
   
-  .save-button:disabled {
+  .previous-button:disabled {
     background-color: #a6c5f7;
     cursor: not-allowed;
   }
   
-  .loading {
+  /* Animação de transição */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Contagem de selecionados */
+  .selected-count {
+    text-align: right;
+    font-size: 14px;
+    color: #666;
+    margin-top: 10px;
+  }
+  
+  /* Estilo para o estado de carregamento */
+  .loading-card {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    font-size: 18px;
-    color: #555;
+    min-height: 300px;
   }
   
-  /* Responsividade */
-  @media (max-width: 768px) {
-    .category-item {
-      flex: 0 0 calc(50% - 10px);
+  .loading-card p {
+    margin-top: 20px;
+    color: #666;
+  }
+  
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 3px solid #e0e0e0;
+    border-top-color: #4285f4;
+    animation: spin 1s linear infinite;
+  }
+  
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
     }
   }
   
+  /* Responsividade para telas menores */
   @media (max-width: 576px) {
-    .category-item {
-      flex: 0 0 100%;
+    .category-selection-card {
+      padding: 20px;
     }
     
-    .category-selection-card {
-      padding: 20px 15px;
+    .category-list.single-page {
+      max-height: 250px;
     }
   }
