@@ -16,9 +16,9 @@ const CategorySelection = () => {
 
   // Estrutura de categorias financeiras com ordem explícita
   const financialCategories = {
-    "1. RECEITA BRUTA": {
+    "1. RECEITA": {
       order: 1,
-      displayName: "RECEITA BRUTA",
+      displayName: "RECEITA",
       items: [
         "Dinheiro",
         "Cheque",

@@ -89,3 +89,9 @@ const financialCategories = {
       "Equipamentos / Aplicações em Fundos"
     ]
   };
+
+  DTPOSTED → Data da transação
+
+TRNAMT → Valor da transação
+
+MEMO → Descrição da transação.
