@@ -1,0 +1,144 @@
+/* src/components/Auth/CategorySelection.css */
+.category-selection-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+    background-color: #f5f5f5;
+    min-height: 100vh;
+  }
+  
+  .category-selection-card {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 30px;
+    width: 100%;
+    max-width: 800px;
+    margin-bottom: 40px;
+  }
+  
+  .category-selection-card h2 {
+    color: #333;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  
+  .instruction {
+    text-align: center;
+    color: #666;
+    margin-bottom: 30px;
+  }
+  
+  .categories-container {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 15px;
+  }
+  
+  .category-group {
+    margin-bottom: 20px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 15px;
+  }
+  
+  .category-group h3 {
+    color: #3367d6;
+    margin-bottom: 10px;
+    font-size: 18px;
+  }
+  
+  .category-subgroup {
+    margin-left: 20px;
+    margin-bottom: 10px;
+  }
+  
+  .category-subgroup h4 {
+    color: #555;
+    margin-bottom: 8px;
+    font-size: 16px;
+  }
+  
+  .category-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  
+  .category-item {
+    flex: 0 0 calc(33.333% - 10px);
+    min-width: 200px;
+  }
+  
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+  }
+  
+  .checkbox-label:hover {
+    background-color: #f5f5f5;
+  }
+  
+  .checkbox-label input {
+    margin-right: 10px;
+    width: 18px;
+    height: 18px;
+  }
+  
+  .button-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 30px;
+  }
+  
+  .save-button {
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 500;
+    padding: 12px 24px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  
+  .save-button:hover {
+    background-color: #3367d6;
+  }
+  
+  .save-button:disabled {
+    background-color: #a6c5f7;
+    cursor: not-allowed;
+  }
+  
+  .loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-size: 18px;
+    color: #555;
+  }
+  
+  /* Responsividade */
+  @media (max-width: 768px) {
+    .category-item {
+      flex: 0 0 calc(50% - 10px);
+    }
+  }
+  
+  @media (max-width: 576px) {
+    .category-item {
+      flex: 0 0 100%;
+    }
+    
+    .category-selection-card {
+      padding: 20px 15px;
+    }
+  }
