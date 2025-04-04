@@ -22,12 +22,27 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
   const [saving, setSaving] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isCategorizing, setIsCategorizing] = useState(true);
+  const [period, setPeriod] = useState("");
+  const [periodLabel, setPeriodLabel] = useState("");
   const transactionsPerPage = 10;
 
   // Calculate pagination
   const indexOfLastTransaction = currentPage * transactionsPerPage;
   const indexOfFirstTransaction = indexOfLastTransaction - transactionsPerPage;
   const totalPages = Math.ceil(processedTransactions.length / transactionsPerPage);
+
+  // Extrair informações de período do primeiro item de transações
+  useEffect(() => {
+    if (transactions && transactions.length > 0) {
+      const firstTransaction = transactions[0];
+      if (firstTransaction.period) {
+        setPeriod(firstTransaction.period);
+      }
+      if (firstTransaction.periodLabel) {
+        setPeriodLabel(firstTransaction.periodLabel);
+      }
+    }
+  }, [transactions]);
 
   // Load category mappings when component mounts
   useEffect(() => {
@@ -141,6 +156,11 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
             category: transaction.category,
             categoryPath: transaction.categoryPath,
             groupName: transaction.groupName || transaction.categoryPath.split('.')[0],
+            // Incluir período, mês e ano se disponíveis
+            period: transaction.period || period,
+            periodLabel: transaction.periodLabel || periodLabel,
+            month: transaction.month || period?.split('-')[1],
+            year: transaction.year || period?.split('-')[0],
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           };
@@ -195,7 +215,12 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
   return (
     <div className="transactions-container">
       <div className="transactions-header">
-        <h3>Categorizar Transações</h3>
+        <h3>
+          Categorizar Transações
+          {periodLabel && <span style={{ fontWeight: 'normal', marginLeft: '10px', fontSize: '14px' }}>
+            ({periodLabel})
+          </span>}
+        </h3>
         <div className="transactions-count">
           {processedTransactions.length} transações encontradas
         </div>
@@ -257,7 +282,7 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
                 &lt;
               </button>
               
-              <span className="pagination-info">
+              <span className="pagination-info" style={{ margin: '0 10px' }}>
                 Página {currentPage} de {totalPages}
               </span>
               

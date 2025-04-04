@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { auth, db } from "../../firebase/config";
 import { doc, getDoc } from "firebase/firestore";
 import FileUpload from "./FileUpload";
+import PreviousFiles from "./PreviousFiles";
 import TransactionList from "./TransactionList";
 import "./Transactions.css";
 
@@ -13,6 +14,7 @@ const Transactions = () => {
   const [success, setSuccess] = useState("");
   const [categories, setCategories] = useState({});
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("upload"); // 'upload' ou 'previous'
 
   // Load user categories on component mount
   useEffect(() => {
@@ -29,7 +31,7 @@ const Transactions = () => {
         if (userCategoriesDoc.exists()) {
           const categoriesData = userCategoriesDoc.data();
           
-          // Process categories into a more usable format for the new TransactionItem component
+          // Process categories into a more usable format for the TransactionItem component
           if (categoriesData.categories) {
             // Extrair categorias selecionadas organizadas por grupo
             const categoriesByGroup = {};
@@ -79,8 +81,21 @@ const Transactions = () => {
     }, 5000);
   };
 
-  // Handler for errors during file upload
-  const handleUploadError = (errorMessage) => {
+  // Handler for when a previous file is selected
+  const handlePreviousFileSelected = (loadedTransactions, fileId) => {
+    setTransactions(loadedTransactions);
+    setFileId(fileId);
+    setError("");
+    setSuccess(`${loadedTransactions.length} transações carregadas com sucesso!`);
+    
+    // Clear success message after 5 seconds
+    setTimeout(() => {
+      setSuccess("");
+    }, 5000);
+  };
+
+  // Handler for errors during file upload or loading
+  const handleError = (errorMessage) => {
     setError(errorMessage);
     setSuccess("");
   };
@@ -125,10 +140,36 @@ const Transactions = () => {
         </div>
       )}
       
-      <FileUpload 
-        onTransactionsLoaded={handleTransactionsLoaded}
-        onError={handleUploadError}
-      />
+      <div className="tabs-container">
+        <div className="tabs-header">
+          <button 
+            className={`tab-button ${activeTab === 'upload' ? 'active' : ''}`}
+            onClick={() => setActiveTab('upload')}
+          >
+            Importar Novo Arquivo
+          </button>
+          <button 
+            className={`tab-button ${activeTab === 'previous' ? 'active' : ''}`}
+            onClick={() => setActiveTab('previous')}
+          >
+            Arquivos Anteriores
+          </button>
+        </div>
+        
+        <div className={`tab-content ${activeTab === 'upload' ? 'active' : ''}`}>
+          <FileUpload 
+            onTransactionsLoaded={handleTransactionsLoaded}
+            onError={handleError}
+          />
+        </div>
+        
+        <div className={`tab-content ${activeTab === 'previous' ? 'active' : ''}`}>
+          <PreviousFiles 
+            onFileSelected={handlePreviousFileSelected}
+            onError={handleError}
+          />
+        </div>
+      </div>
       
       {loading ? (
         <div className="loading-message" style={{ textAlign: 'center', padding: '20px' }}>
