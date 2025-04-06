@@ -1,6 +1,79 @@
 // src/utils/dreDataProcessor.js
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
+
+/**
+ * Busca transações para um período específico combinando dados de OFX com mapeamentos de categorias
+ * @param {string} userId - ID do usuário
+ * @param {string} period - Período (YYYY-MM)
+ * @returns {Promise<Array>} - Promise com array de transações processadas
+ */
+export const fetchTransactionsForPeriod = async (userId, period) => {
+  try {
+    // 1. Buscar todos os arquivos OFX do período
+    const ofxFilesQuery = query(
+      collection(db, "ofxFiles"),
+      where("userId", "==", userId),
+      where("period", "==", period)
+    );
+    
+    const ofxSnapshot = await getDocs(ofxFilesQuery);
+    let rawTransactions = [];
+    
+    // Coletar todas as transações brutas dos arquivos OFX
+    ofxSnapshot.forEach((doc) => {
+      const fileData = doc.data();
+      if (fileData.rawTransactions && Array.isArray(fileData.rawTransactions)) {
+        // Adicionar metadados do período
+        const txsWithMetadata = fileData.rawTransactions.map(tx => ({
+          ...tx,
+          date: tx.date instanceof Date ? tx.date : new Date(tx.date),
+          period: fileData.period,
+          periodLabel: fileData.periodLabel,
+          month: fileData.month,
+          year: fileData.year
+        }));
+        
+        rawTransactions = [...rawTransactions, ...txsWithMetadata];
+      }
+    });
+    
+    // 2. Buscar os mapeamentos de categorias
+    const categoryMappingsDoc = await getDoc(doc(db, "categoryMappings", userId));
+    const categoryMappings = categoryMappingsDoc.exists() ? categoryMappingsDoc.data().mappings || {} : {};
+    
+    // 3. Aplicar mapeamentos de categorias às transações
+    const processedTransactions = rawTransactions.map(transaction => {
+      const normalizedDescription = transaction.description.trim().toLowerCase();
+      
+      // Verificar se existe um mapeamento para esta descrição
+      if (categoryMappings[normalizedDescription]) {
+        const mapping = categoryMappings[normalizedDescription];
+        return {
+          id: transaction.id,
+          date: transaction.date,
+          amount: transaction.amount,
+          description: transaction.description,
+          category: mapping.categoryName,
+          categoryPath: mapping.categoryPath,
+          groupName: mapping.groupName,
+          period: transaction.period,
+          periodLabel: transaction.periodLabel,
+          month: transaction.month,
+          year: transaction.year
+        };
+      }
+      
+      // Transação sem mapeamento (não categorizada)
+      return transaction;
+    });
+    
+    return processedTransactions;
+  } catch (error) {
+    console.error("Erro ao buscar transações para o período:", error);
+    throw error;
+  }
+};
 
 /**
  * Processa os dados de transações para o formato DRE
@@ -64,40 +137,6 @@ export const processDreData = (transactions, financialCategories) => {
 };
 
 /**
- * Busca transações para um período específico
- * @param {string} userId - ID do usuário
- * @param {string} period - Período (YYYY-MM)
- * @returns {Promise<Array>} - Promise com array de transações
- */
-export const fetchTransactionsForPeriod = async (userId, period) => {
-  try {
-    // Buscar todas as transações do período selecionado
-    const transactionsQuery = query(
-      collection(db, "transactions"),
-      where("userId", "==", userId),
-      where("period", "==", period)
-    );
-
-    const querySnapshot = await getDocs(transactionsQuery);
-    const transactionsData = [];
-    
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      transactionsData.push({
-        id: doc.id,
-        ...data,
-        date: data.date?.toDate() || new Date(),
-      });
-    });
-    
-    return transactionsData;
-  } catch (error) {
-    console.error("Erro ao buscar transações:", error);
-    throw error;
-  }
-};
-
-/**
  * Busca transações não categorizadas para um período
  * @param {string} userId - ID do usuário
  * @param {string} period - Período (YYYY-MM)
@@ -105,49 +144,43 @@ export const fetchTransactionsForPeriod = async (userId, period) => {
  */
 export const fetchUncategorizedTransactions = async (userId, period) => {
   try {
-    // Buscar transações categorizadas para obter IDs
-    const categorizedQuery = query(
-      collection(db, "transactions"),
-      where("userId", "==", userId),
-      where("period", "==", period)
-    );
-    
-    const categorizedSnapshot = await getDocs(categorizedQuery);
-    const categorizedIds = new Set();
-    
-    categorizedSnapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.transactionId) {
-        categorizedIds.add(data.transactionId);
-      }
-    });
-    
-    // Buscar arquivos OFX do período
+    // Buscar todos os arquivos OFX do período
     const ofxFilesQuery = query(
       collection(db, "ofxFiles"),
       where("userId", "==", userId),
       where("period", "==", period)
     );
-
+    
     const ofxSnapshot = await getDocs(ofxFilesQuery);
-    let uncategorizedTxs = [];
-
+    let rawTransactions = [];
+    
+    // Coletar todas as transações brutas dos arquivos OFX
     ofxSnapshot.forEach((doc) => {
       const fileData = doc.data();
-      
       if (fileData.rawTransactions && Array.isArray(fileData.rawTransactions)) {
-        // Filtrar transações que não foram processadas
-        const uncategorizedInFile = fileData.rawTransactions.filter(
-          tx => !categorizedIds.has(tx.id)
-        );
-        
-        uncategorizedTxs = [...uncategorizedTxs, ...uncategorizedInFile];
+        rawTransactions = [...rawTransactions, ...fileData.rawTransactions];
       }
     });
     
+    // Buscar os mapeamentos de categorias
+    const categoryMappingsDoc = await getDoc(doc(db, "categoryMappings", userId));
+    const categoryMappings = categoryMappingsDoc.exists() ? categoryMappingsDoc.data().mappings || {} : {};
+    
+    // Filtrar transações que não possuem mapeamento
+    const uncategorizedTransactions = rawTransactions.filter(transaction => {
+      const normalizedDescription = transaction.description.trim().toLowerCase();
+      return !categoryMappings[normalizedDescription];
+    });
+    
+    // Calcular o total de valores não categorizados
+    const totalUncategorizedAmount = uncategorizedTransactions.reduce(
+      (total, tx) => total + (tx.amount || 0), 
+      0
+    );
+    
     return {
-      count: uncategorizedTxs.length,
-      amount: uncategorizedTxs.reduce((total, tx) => total + (tx.amount || 0), 0)
+      count: uncategorizedTransactions.length,
+      amount: totalUncategorizedAmount
     };
   } catch (error) {
     console.error("Erro ao buscar transações não categorizadas:", error);
@@ -181,7 +214,7 @@ export const fetchMonthlyTrendsData = async (userId, monthsCount = 6) => {
       transactions.forEach(tx => {
         if (tx.groupName === "RECEITA" || tx.groupName === "OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS") {
           revenue += tx.amount;
-        } else if (tx.amount < 0 || tx.groupName.startsWith("(-)")) {
+        } else if (tx.amount < 0 || tx.groupName?.startsWith("(-)")) {
           expenses += Math.abs(tx.amount);
         }
       });

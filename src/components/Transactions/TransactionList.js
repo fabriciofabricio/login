@@ -2,15 +2,12 @@
 import React, { useState, useEffect } from "react";
 import { auth, db } from "../../firebase/config";
 import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  query, 
-  where, 
-  serverTimestamp,
   doc,
+  getDoc,
   setDoc,
-  getDoc
+  serverTimestamp,
+  updateDoc,
+  arrayUnion
 } from "firebase/firestore";
 import TransactionItem from "./TransactionItem";
 
@@ -80,6 +77,7 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
             ...transaction,
             category: mapping.categoryName,
             categoryPath: mapping.categoryPath,
+            groupName: mapping.groupName,
             autoMapped: true
           };
         }
@@ -128,7 +126,7 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
     );
   };
 
-  // Save all transactions and category mappings
+  // Salvar apenas os mapeamentos de categorias, não as transações individuais
   const saveTransactions = async () => {
     try {
       setSaving(true);
@@ -137,69 +135,51 @@ const TransactionList = ({ transactions, fileId, categories, onComplete }) => {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("Usuário não autenticado");
       
-      // Create a batch for all transactions
-      const transactionsToSave = [];
+      // Criar um novo objeto para os mapeamentos
       const newMappings = { ...categoryMappings };
+      const categorizedTransactionIds = [];
       
-      // Process each transaction
+      // Processar cada transação
       for (const transaction of processedTransactions) {
-        // Only save transactions that have been categorized
+        // Apenas considerar transações que foram categorizadas
         if (transaction.categoryPath) {
-          // Prepare transaction data for Firestore
-          const transactionData = {
-            userId: currentUser.uid,
-            fileId: fileId,
-            transactionId: transaction.id,
-            date: new Date(transaction.date),
-            amount: transaction.amount,
-            description: transaction.description,
-            category: transaction.category,
+          const normalizedDescription = transaction.description.trim().toLowerCase();
+          
+          // Adicionar/atualizar o mapeamento
+          newMappings[normalizedDescription] = {
+            categoryName: transaction.category,
             categoryPath: transaction.categoryPath,
             groupName: transaction.groupName || transaction.categoryPath.split('.')[0],
-            // Incluir período, mês e ano se disponíveis
-            period: transaction.period || period,
-            periodLabel: transaction.periodLabel || periodLabel,
-            month: transaction.month || period?.split('-')[1],
-            year: transaction.year || period?.split('-')[0],
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
+            lastUsed: new Date()
           };
           
-          transactionsToSave.push(transactionData);
-          
-          // Add to mappings if not already present
-          const normalizedDescription = transaction.description.trim().toLowerCase();
-          if (!newMappings[normalizedDescription] && transaction.categoryPath) {
-            newMappings[normalizedDescription] = {
-              categoryName: transaction.category,
-              categoryPath: transaction.categoryPath,
-              groupName: transaction.groupName || transaction.categoryPath.split('.')[0],
-              lastUsed: new Date()
-            };
-          }
+          // Adicionar o ID da transação à lista de transações categorizadas
+          categorizedTransactionIds.push(transaction.id);
         }
       }
       
-      // Salvar o mapeamento de categorias primeiro
+      // Salvar o mapeamento de categorias
       await setDoc(doc(db, "categoryMappings", currentUser.uid), {
         userId: currentUser.uid,
         mappings: newMappings,
         updatedAt: serverTimestamp()
       }, { merge: true });
       
-      // Save all transactions to Firestore
-      for (const transaction of transactionsToSave) {
-        await addDoc(collection(db, "transactions"), transaction);
+      // Atualizar o documento do arquivo OFX para marcar quais transações foram categorizadas
+      if (fileId && categorizedTransactionIds.length > 0) {
+        await updateDoc(doc(db, "ofxFiles", fileId), {
+          categorizedTransactions: arrayUnion(...categorizedTransactionIds),
+          lastUpdated: serverTimestamp()
+        });
       }
       
-      // Call the onComplete callback to notify parent component
+      // Chamar o callback onComplete, passando a contagem de transações categorizadas
       if (onComplete) {
-        onComplete(transactionsToSave.length);
+        onComplete(categorizedTransactionIds.length);
       }
-      
     } catch (error) {
-      console.error("Error saving transactions:", error);
-      alert(`Erro ao salvar transações: ${error.message}`);
+      console.error("Error saving category mappings:", error);
+      alert(`Erro ao salvar categorias: ${error.message}`);
     } finally {
       setSaving(false);
     }

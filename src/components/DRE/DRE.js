@@ -1,8 +1,8 @@
-// src/components/DRE/DRE.js (com aba de categorização adicionada)
-import React, { useState, useEffect } from "react";
+// src/components/DRE/DRE.js
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../../firebase/config";
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import DreCategorizationTab from "./DreCategorizationTab";
 import "./DRE.css";
 
@@ -228,6 +228,151 @@ const styles = {
   }
 };
 
+// CORRIGIDO: Movido para fora do componente para evitar recriações
+const financialCategories = {
+  "1. RECEITA": {
+    order: 1,
+    displayName: "RECEITA",
+    isRevenue: true,
+    isTotal: false,
+  },
+  "2. (-) DEDUÇÕES DA RECEITA": {
+    order: 2,
+    displayName: "(-) DEDUÇÕES DA RECEITA",
+    isRevenue: false,
+    isTotal: false,
+  },
+  "3. (=) RECEITA LÍQUIDA": {
+    order: 3,
+    displayName: "(=) RECEITA LÍQUIDA",
+    isTotal: true,
+    formula: (data) => {
+      return (data["1. RECEITA"]?.total || 0) - (data["2. (-) DEDUÇÕES DA RECEITA"]?.total || 0);
+    }
+  },
+  "4. (+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS": {
+    order: 4,
+    displayName: "(+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS",
+    isRevenue: true,
+    isTotal: false,
+  },
+  "5. (-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)": {
+    order: 5,
+    displayName: "(-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)",
+    isRevenue: false,
+    isTotal: false,
+  },
+  "6. (=) LUCRO BRUTO": {
+    order: 6,
+    displayName: "(=) LUCRO BRUTO",
+    isTotal: true,
+    formula: (data) => {
+      return (data["3. (=) RECEITA LÍQUIDA"]?.total || 0) + 
+             (data["4. (+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS"]?.total || 0) - 
+             (data["5. (-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)"]?.total || 0);
+    }
+  },
+  "7. (-) DESPESAS OPERACIONAIS": {
+    order: 7,
+    displayName: "(-) DESPESAS OPERACIONAIS",
+    isRevenue: false,
+    isTotal: false,
+  },
+  "8. (-) DESPESAS COM SÓCIOS": {
+    order: 8,
+    displayName: "(-) DESPESAS COM SÓCIOS",
+    isRevenue: false,
+    isTotal: false,
+  },
+  "9. (-) INVESTIMENTOS": {
+    order: 9,
+    displayName: "(-) INVESTIMENTOS",
+    isRevenue: false,
+    isTotal: false,
+  },
+  "10. (=) LUCRO LÍQUIDO": {
+    order: 10,
+    displayName: "(=) LUCRO LÍQUIDO",
+    isTotal: true,
+    formula: (data) => {
+      return (data["6. (=) LUCRO BRUTO"]?.total || 0) - 
+             (data["7. (-) DESPESAS OPERACIONAIS"]?.total || 0) - 
+             (data["8. (-) DESPESAS COM SÓCIOS"]?.total || 0) - 
+             (data["9. (-) INVESTIMENTOS"]?.total || 0);
+    }
+  }
+};
+
+// Função para aplicar mapeamentos de padrões às transações
+const applyMappingsToTransactions = (transactions, mappings) => {
+  let uncategorizedCount = 0;
+  let uncategorizedAmount = 0;
+  
+  const processedTransactions = transactions.map(transaction => {
+    const normalizedDescription = transaction.description?.trim().toLowerCase();
+    
+    if (!normalizedDescription) {
+      uncategorizedCount++;
+      uncategorizedAmount += transaction.amount || 0;
+      return transaction;
+    }
+    
+    // 1. Primeiro tentar um match exato
+    if (mappings[normalizedDescription]) {
+      const mapping = mappings[normalizedDescription];
+      return {
+        ...transaction,
+        category: mapping.categoryName,
+        categoryPath: mapping.categoryPath,
+        groupName: mapping.groupName
+      };
+    }
+    
+    // 2. Se não houver match exato, procurar por padrões
+    // Verificar todos os padrões no mapeamento
+    for (const [pattern, mapping] of Object.entries(mappings)) {
+      // Só processamos chaves que são padrões (que começam ou terminam com *)
+      if (!pattern.includes('*')) continue;
+      
+      let isMatch = false;
+      
+      if (pattern.startsWith('*') && pattern.endsWith('*')) {
+        // Padrão de substring (*PALAVRA*)
+        const keyword = pattern.substring(1, pattern.length - 1);
+        isMatch = normalizedDescription.includes(keyword);
+      } else if (pattern.startsWith('*')) {
+        // Padrão de sufixo (*PALAVRA)
+        const suffix = pattern.substring(1);
+        isMatch = normalizedDescription.endsWith(suffix);
+      } else if (pattern.endsWith('*')) {
+        // Padrão de prefixo (PALAVRA*)
+        const prefix = pattern.substring(0, pattern.length - 1);
+        isMatch = normalizedDescription.startsWith(prefix);
+      }
+      
+      if (isMatch) {
+        return {
+          ...transaction,
+          category: mapping.categoryName,
+          categoryPath: mapping.categoryPath,
+          groupName: mapping.groupName
+        };
+      }
+    }
+    
+    // Se não houve match nem com padrões
+    uncategorizedCount++;
+    uncategorizedAmount += transaction.amount || 0;
+    return transaction;
+  });
+  
+  return {
+    processedTransactions,
+    uncategorizedCount,
+    uncategorizedAmount
+  };
+};
+
 // Componente principal DRE
 const DRE = () => {
   const [loading, setLoading] = useState(true);
@@ -240,98 +385,95 @@ const DRE = () => {
   const [showUncategorized, setShowUncategorized] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [categories, setCategories] = useState({});
+  const [categoryMappings, setCategoryMappings] = useState({});
   const navigate = useNavigate();
 
-  // Estrutura das categorias financeiras (mantida do original)
-  const financialCategories = {
-    "1. RECEITA": {
-      order: 1,
-      displayName: "RECEITA",
-      isRevenue: true,
-      isTotal: false,
-    },
-    "2. (-) DEDUÇÕES DA RECEITA": {
-      order: 2,
-      displayName: "(-) DEDUÇÕES DA RECEITA",
-      isRevenue: false,
-      isTotal: false,
-    },
-    "3. (=) RECEITA LÍQUIDA": {
-      order: 3,
-      displayName: "(=) RECEITA LÍQUIDA",
-      isTotal: true,
-      formula: (data) => {
-        return (data["1. RECEITA"]?.total || 0) - (data["2. (-) DEDUÇÕES DA RECEITA"]?.total || 0);
-      }
-    },
-    "4. (+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS": {
-      order: 4,
-      displayName: "(+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS",
-      isRevenue: true,
-      isTotal: false,
-    },
-    "5. (-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)": {
-      order: 5,
-      displayName: "(-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)",
-      isRevenue: false,
-      isTotal: false,
-    },
-    "6. (=) LUCRO BRUTO": {
-      order: 6,
-      displayName: "(=) LUCRO BRUTO",
-      isTotal: true,
-      formula: (data) => {
-        return (data["3. (=) RECEITA LÍQUIDA"]?.total || 0) + 
-               (data["4. (+) OUTRAS RECEITAS OPERACIONAIS E NÃO OPERACIONAIS"]?.total || 0) - 
-               (data["5. (-) CUSTOS DAS MERCADORIAS VENDIDAS (CMV)"]?.total || 0);
-      }
-    },
-    "7. (-) DESPESAS OPERACIONAIS": {
-      order: 7,
-      displayName: "(-) DESPESAS OPERACIONAIS",
-      isRevenue: false,
-      isTotal: false,
-    },
-    "8. (-) DESPESAS COM SÓCIOS": {
-      order: 8,
-      displayName: "(-) DESPESAS COM SÓCIOS",
-      isRevenue: false,
-      isTotal: false,
-    },
-    "9. (-) INVESTIMENTOS": {
-      order: 9,
-      displayName: "(-) INVESTIMENTOS",
-      isRevenue: false,
-      isTotal: false,
-    },
-    "10. (=) LUCRO LÍQUIDO": {
-      order: 10,
-      displayName: "(=) LUCRO LÍQUIDO",
-      isTotal: true,
-      formula: (data) => {
-        return (data["6. (=) LUCRO BRUTO"]?.total || 0) - 
-               (data["7. (-) DESPESAS OPERACIONAIS"]?.total || 0) - 
-               (data["8. (-) DESPESAS COM SÓCIOS"]?.total || 0) - 
-               (data["9. (-) INVESTIMENTOS"]?.total || 0);
-      }
+  // CORRIGIDO: Função memoizada para processar transações
+  const processTransactions = useCallback((transactionsToProcess) => {
+    // Se não há transações, inicialize dados vazios
+    if (!transactionsToProcess || transactionsToProcess.length === 0) {
+      const emptyData = {};
+      Object.keys(financialCategories).forEach(key => {
+        if (!financialCategories[key].isTotal) {
+          emptyData[key] = {
+            categories: {},
+            total: 0
+          };
+        }
+      });
+      return emptyData;
     }
-  };
 
-  // Carregar períodos disponíveis
+    // Agrupar transações por categoria
+    const data = {};
+    
+    // Inicializar categorias
+    Object.keys(financialCategories).forEach(key => {
+      if (!financialCategories[key].isTotal) {
+        data[key] = {
+          categories: {},
+          total: 0
+        };
+      }
+    });
+    
+    // Processar transações
+    transactionsToProcess.forEach(transaction => {
+      if (transaction.groupName && transaction.category && transaction.amount) {
+        const groupKey = Object.keys(financialCategories).find(
+          key => financialCategories[key].displayName === transaction.groupName
+        );
+        
+        if (groupKey) {
+          // Adicionar à categoria específica
+          if (!data[groupKey].categories[transaction.category]) {
+            data[groupKey].categories[transaction.category] = 0;
+          }
+          
+          // Decidir como adicionar o valor com base no tipo de categoria
+          if (financialCategories[groupKey].isRevenue) {
+            // Para receitas, valores positivos aumentam o total, negativos diminuem
+            data[groupKey].categories[transaction.category] += transaction.amount;
+          } else {
+            // Para despesas e custos, valores negativos aumentam o total (em valor absoluto)
+            data[groupKey].categories[transaction.category] += Math.abs(transaction.amount);
+          }
+        }
+      }
+    });
+    
+    // Calcular totais de cada grupo
+    Object.keys(data).forEach(key => {
+      data[key].total = Object.values(data[key].categories).reduce((sum, value) => sum + value, 0);
+    });
+    
+    // Calcular totais calculados (receita líquida, lucro bruto, lucro líquido)
+    Object.keys(financialCategories).forEach(key => {
+      if (financialCategories[key].isTotal && financialCategories[key].formula) {
+        data[key] = {
+          total: financialCategories[key].formula(data),
+          isCalculated: true
+        };
+      }
+    });
+    
+    return data;
+  }, []); // Sem dependências para evitar recriações
+
+  // CORRIGIDO: Carregar períodos disponíveis - executa apenas uma vez na montagem
   useEffect(() => {
     const loadPeriods = async () => {
       try {
         const currentUser = auth.currentUser;
         if (!currentUser) return;
 
-        // Buscar períodos únicos de transações
-        const transactionsQuery = query(
-          collection(db, "transactions"),
-          where("userId", "==", currentUser.uid),
-          orderBy("period", "desc")
+        // Buscar períodos únicos de arquivos OFX
+        const ofxFilesQuery = query(
+          collection(db, "ofxFiles"),
+          where("userId", "==", currentUser.uid)
         );
 
-        const querySnapshot = await getDocs(transactionsQuery);
+        const querySnapshot = await getDocs(ofxFilesQuery);
         const uniquePeriods = new Set();
         
         querySnapshot.forEach((doc) => {
@@ -350,7 +492,7 @@ const DRE = () => {
         
         setPeriods(periodsArray);
         
-        if (periodsArray.length > 0) {
+        if (periodsArray.length > 0 && !selectedPeriod) {
           setSelectedPeriod(periodsArray[0].period);
         }
       } catch (error) {
@@ -359,11 +501,11 @@ const DRE = () => {
     };
 
     loadPeriods();
-  }, []);
+  }, []); // Este useEffect deve executar apenas uma vez na montagem
 
-  // Carregar categorias do usuário para o uso na aba de categorização
+  // CORRIGIDO: Carregar categorias do usuário - uma vez na montagem
   useEffect(() => {
-    const loadCategories = async () => {
+    const loadUserData = async () => {
       try {
         const currentUser = auth.currentUser;
         if (!currentUser) return;
@@ -399,15 +541,21 @@ const DRE = () => {
             setCategories(categoriesByGroup);
           }
         }
+
+        // Buscar mapeamentos de categorias
+        const mappingsDoc = await getDoc(doc(db, "categoryMappings", currentUser.uid));
+        if (mappingsDoc.exists() && mappingsDoc.data().mappings) {
+          setCategoryMappings(mappingsDoc.data().mappings);
+        }
       } catch (error) {
-        console.error("Erro ao carregar categorias:", error);
+        console.error("Erro ao carregar dados do usuário:", error);
       }
     };
     
-    loadCategories();
-  }, []);
+    loadUserData();
+  }, []); // Executar apenas uma vez na montagem
 
-  // Carregar transações quando o período for selecionado
+  // CORRIGIDO: Carregar transações quando o período for selecionado
   useEffect(() => {
     if (!selectedPeriod) {
       setLoading(false);
@@ -417,139 +565,64 @@ const DRE = () => {
     const loadTransactions = async () => {
       try {
         setLoading(true);
-        const currentUser = auth.currentUser;
-        if (!currentUser) return;
-
-        // Buscar todas as transações do período selecionado
-        const transactionsQuery = query(
-          collection(db, "transactions"),
-          where("userId", "==", currentUser.uid),
-          where("period", "==", selectedPeriod)
-        );
-
-        const querySnapshot = await getDocs(transactionsQuery);
-        const transactionsData = [];
         
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          transactionsData.push({
-            id: doc.id,
-            ...data,
-            date: data.date?.toDate() || new Date(),
-          });
-        });
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          setLoading(false);
+          return;
+        }
 
-        // Buscar transações não categorizadas do período
+        // 1. Buscar arquivos OFX do período
         const ofxFilesQuery = query(
           collection(db, "ofxFiles"),
           where("userId", "==", currentUser.uid),
           where("period", "==", selectedPeriod)
         );
-
+        
         const ofxSnapshot = await getDocs(ofxFilesQuery);
-        let uncategorizedTxs = [];
-        let processedTxIds = new Set(transactionsData.map(tx => tx.transactionId));
-
+        let rawTransactions = [];
+        
+        // 2. Processar transações de cada arquivo OFX
         ofxSnapshot.forEach((doc) => {
           const fileData = doc.data();
           
           if (fileData.rawTransactions && Array.isArray(fileData.rawTransactions)) {
-            // Filtrar transações que não foram processadas
-            const uncategorizedInFile = fileData.rawTransactions.filter(
-              tx => !processedTxIds.has(tx.id)
-            );
+            // Adicionar metadados do período às transações
+            const txsWithMetadata = fileData.rawTransactions.map(tx => ({
+              ...tx,
+              id: tx.id,
+              date: tx.date instanceof Date ? tx.date : new Date(tx.date),
+              period: fileData.period,
+              periodLabel: fileData.periodLabel,
+              month: fileData.month,
+              year: fileData.year
+            }));
             
-            uncategorizedTxs = [...uncategorizedTxs, ...uncategorizedInFile];
+            rawTransactions = [...rawTransactions, ...txsWithMetadata];
           }
         });
-
-        setTransactions(transactionsData);
-        setUncategorizedCount(uncategorizedTxs.length);
-        setUncategorizedAmount(uncategorizedTxs.reduce((total, tx) => total + (tx.amount || 0), 0));
+        
+        // 3. Aplicar mapeamentos de categorias às transações usando a nova função
+        const { processedTransactions, uncategorizedCount, uncategorizedAmount } = 
+          applyMappingsToTransactions(rawTransactions, categoryMappings);
+        
+        setTransactions(processedTransactions);
+        setUncategorizedCount(uncategorizedCount);
+        setUncategorizedAmount(uncategorizedAmount);
+        
+        // 4. Processar os dados para o DRE diretamente aqui
+        const dreProcessedData = processTransactions(processedTransactions);
+        setDreData(dreProcessedData);
+        
+        setLoading(false);
       } catch (error) {
         console.error("Erro ao carregar transações:", error);
-      } finally {
         setLoading(false);
       }
     };
 
     loadTransactions();
-  }, [selectedPeriod]);
-
-  // Processar transações para o formato DRE
-  useEffect(() => {
-    if (transactions.length === 0 && !loading) {
-      // Inicializar dados vazios para o DRE
-      const emptyData = {};
-      Object.keys(financialCategories).forEach(key => {
-        if (!financialCategories[key].isTotal) {
-          emptyData[key] = {
-            categories: {},
-            total: 0
-          };
-        }
-      });
-      setDreData(emptyData);
-      return;
-    }
-
-    if (transactions.length > 0) {
-      // Agrupar transações por categoria
-      const data = {};
-      
-      // Inicializar categorias
-      Object.keys(financialCategories).forEach(key => {
-        if (!financialCategories[key].isTotal) {
-          data[key] = {
-            categories: {},
-            total: 0
-          };
-        }
-      });
-      
-      // Processar transações
-      transactions.forEach(transaction => {
-        if (transaction.groupName && transaction.category && transaction.amount) {
-          const groupKey = Object.keys(financialCategories).find(
-            key => financialCategories[key].displayName === transaction.groupName
-          );
-          
-          if (groupKey) {
-            // Adicionar à categoria específica
-            if (!data[groupKey].categories[transaction.category]) {
-              data[groupKey].categories[transaction.category] = 0;
-            }
-            
-            // Decidir como adicionar o valor com base no tipo de categoria
-            if (financialCategories[groupKey].isRevenue) {
-              // Para receitas, valores positivos aumentam o total, negativos diminuem
-              data[groupKey].categories[transaction.category] += transaction.amount;
-            } else {
-              // Para despesas e custos, valores negativos aumentam o total (em valor absoluto)
-              data[groupKey].categories[transaction.category] += Math.abs(transaction.amount);
-            }
-          }
-        }
-      });
-      
-      // Calcular totais de cada grupo
-      Object.keys(data).forEach(key => {
-        data[key].total = Object.values(data[key].categories).reduce((sum, value) => sum + value, 0);
-      });
-      
-      // Calcular totais calculados (receita líquida, lucro bruto, lucro líquido)
-      Object.keys(financialCategories).forEach(key => {
-        if (financialCategories[key].isTotal && financialCategories[key].formula) {
-          data[key] = {
-            total: financialCategories[key].formula(data),
-            isCalculated: true
-          };
-        }
-      });
-      
-      setDreData(data);
-    }
-  }, [transactions, financialCategories, loading]);
+  }, [selectedPeriod, categoryMappings, processTransactions]); // Dependências atualizadas
 
   // Função para lidar com transações não categorizadas
   const handleCategorizeClick = () => {
@@ -560,61 +633,23 @@ const DRE = () => {
   const refreshDashboard = async () => {
     try {
       setLoading(true);
-      const currentUser = auth.currentUser;
       
+      const currentUser = auth.currentUser;
       if (!currentUser || !selectedPeriod) {
         setLoading(false);
         return;
       }
 
-      // Recarregar transações
-      const transactionsQuery = query(
-        collection(db, "transactions"),
-        where("userId", "==", currentUser.uid),
-        where("period", "==", selectedPeriod)
-      );
-
-      const querySnapshot = await getDocs(transactionsQuery);
-      const transactionsData = [];
+      // Recarregar mapeamentos de categorias
+      const mappingsDoc = await getDoc(doc(db, "categoryMappings", currentUser.uid));
+      if (mappingsDoc.exists() && mappingsDoc.data().mappings) {
+        setCategoryMappings(mappingsDoc.data().mappings);
+      }
       
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        transactionsData.push({
-          id: doc.id,
-          ...data,
-          date: data.date?.toDate() || new Date(),
-        });
-      });
-
-      // Recalcular transações não categorizadas
-      const ofxFilesQuery = query(
-        collection(db, "ofxFiles"),
-        where("userId", "==", currentUser.uid),
-        where("period", "==", selectedPeriod)
-      );
-
-      const ofxSnapshot = await getDocs(ofxFilesQuery);
-      let uncategorizedTxs = [];
-      let processedTxIds = new Set(transactionsData.map(tx => tx.transactionId));
-
-      ofxSnapshot.forEach((doc) => {
-        const fileData = doc.data();
-        
-        if (fileData.rawTransactions && Array.isArray(fileData.rawTransactions)) {
-          const uncategorizedInFile = fileData.rawTransactions.filter(
-            tx => !processedTxIds.has(tx.id)
-          );
-          
-          uncategorizedTxs = [...uncategorizedTxs, ...uncategorizedInFile];
-        }
-      });
-
-      setTransactions(transactionsData);
-      setUncategorizedCount(uncategorizedTxs.length);
-      setUncategorizedAmount(uncategorizedTxs.reduce((total, tx) => total + (tx.amount || 0), 0));
+      // Os dados serão atualizados automaticamente através do useEffect que observa categoryMappings
+      setLoading(false);
     } catch (error) {
       console.error("Erro ao recarregar dados:", error);
-    } finally {
       setLoading(false);
     }
   };

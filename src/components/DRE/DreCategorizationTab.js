@@ -5,9 +5,13 @@ import {
   collection, 
   query, 
   where, 
-  getDocs, 
-  addDoc, 
-  serverTimestamp 
+  getDocs,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  arrayUnion,
+  serverTimestamp
 } from "firebase/firestore";
 
 const style = {
@@ -85,32 +89,27 @@ const style = {
     borderBottom: '1px solid #eee',
     backgroundColor: 'white',
     transition: 'background-color 0.2s',
+    padding: '16px',
+    alignItems: 'center',
   },
   transactionItemHover: {
     backgroundColor: '#f9f9f9',
   },
+  transactionItemSelected: {
+    backgroundColor: '#e3f2fd',
+  },
   transactionDate: {
-    padding: '16px',
     width: '100px',
     color: '#666',
     fontWeight: '500',
-    display: 'flex',
-    alignItems: 'center',
   },
   transactionDescription: {
-    padding: '16px',
     flex: '2',
-    display: 'flex',
-    alignItems: 'center',
   },
   transactionAmount: {
-    padding: '16px',
     width: '150px',
     textAlign: 'right',
     fontWeight: 'bold',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
   },
   positiveAmount: {
     color: '#4caf50',
@@ -118,11 +117,10 @@ const style = {
   negativeAmount: {
     color: '#f44336',
   },
-  transactionCategory: {
-    padding: '16px',
-    flex: '1',
-    display: 'flex',
-    alignItems: 'center',
+  checkbox: {
+    width: '20px',
+    height: '20px',
+    marginRight: '16px',
   },
   paginationContainer: {
     display: 'flex',
@@ -130,7 +128,6 @@ const style = {
     gap: '8px',
     marginBottom: '20px',
   },
-  // Estilos atualizados para os botões de paginação
   paginationButton: {
     padding: '8px 16px',
     border: '1px solid #d0d0d0',
@@ -171,6 +168,23 @@ const style = {
     color: '#666',
     borderRadius: '8px',
     boxShadow: '0 2px 5px rgba(0, 0, 0, 0.1)',
+  },
+  infoCard: {
+    backgroundColor: '#f5f9ff', 
+    border: '1px solid #d0e1fd', 
+    borderRadius: '8px', 
+    padding: '16px', 
+    marginBottom: '24px'
+  },
+  infoTitle: {
+    margin: '0 0 8px 0',
+    color: '#2c5282',
+    fontSize: '16px'
+  },
+  infoText: {
+    margin: '0 0 8px 0',
+    color: '#4a5568',
+    fontSize: '14px'
   },
   quickCategorizeCard: {
     backgroundColor: 'white',
@@ -333,8 +347,116 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
   const [saving, setSaving] = useState(false);
   const [categorySuggestions, setCategorySuggestions] = useState({});
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
+  const [categoryMappings, setCategoryMappings] = useState({});
   
   const itemsPerPage = 10;
+
+  // Carregar transações não categorizadas
+  useEffect(() => {
+    if (!selectedPeriod) {
+      setLoading(false);
+      return;
+    }
+
+    const loadUncategorizedTransactions = async () => {
+      setLoading(true);
+      try {
+        const currentUser = auth.currentUser;
+        if (!currentUser) return;
+
+        // 1. Carregar mapeamentos de categorias
+        const mappingsDocRef = doc(db, "categoryMappings", currentUser.uid);
+        const mappingsDoc = await getDoc(mappingsDocRef);
+        const mappings = mappingsDoc.exists() ? mappingsDoc.data().mappings || {} : {};
+        setCategoryMappings(mappings);
+        
+        // 2. Buscar arquivos OFX do período
+        const ofxFilesQuery = query(
+          collection(db, "ofxFiles"),
+          where("userId", "==", currentUser.uid),
+          where("period", "==", selectedPeriod)
+        );
+
+        const ofxSnapshot = await getDocs(ofxFilesQuery);
+        let allTransactions = [];
+
+        ofxSnapshot.forEach((doc) => {
+          const fileData = doc.data();
+          
+          if (fileData.rawTransactions && Array.isArray(fileData.rawTransactions)) {
+            // Adicionar metadados do período às transações
+            const txsWithMetadata = fileData.rawTransactions.map(tx => ({
+              ...tx,
+              date: tx.date instanceof Date ? tx.date : new Date(tx.date),
+              fileId: doc.id,
+              period: fileData.period,
+              periodLabel: fileData.periodLabel,
+              month: fileData.month,
+              year: fileData.year
+            }));
+            
+            allTransactions = [...allTransactions, ...txsWithMetadata];
+          }
+        });
+
+        // 3. Filtrar transações que não têm mapeamento de categoria
+        const uncategorizedTxs = allTransactions.filter(tx => {
+          const normalizedDescription = tx.description?.trim().toLowerCase();
+          if (!normalizedDescription) return true;
+          
+          // Verificar match exato
+          if (mappings[normalizedDescription]) return false;
+          
+          // Verificar padrões
+          for (const [pattern, mapping] of Object.entries(mappings)) {
+            if (!pattern.includes('*')) continue;
+            
+            let isMatch = false;
+            
+            if (pattern.startsWith('*') && pattern.endsWith('*')) {
+              // Padrão de substring (*PALAVRA*)
+              const keyword = pattern.substring(1, pattern.length - 1);
+              isMatch = normalizedDescription.includes(keyword);
+            } else if (pattern.startsWith('*')) {
+              // Padrão de sufixo (*PALAVRA)
+              const suffix = pattern.substring(1);
+              isMatch = normalizedDescription.endsWith(suffix);
+            } else if (pattern.endsWith('*')) {
+              // Padrão de prefixo (PALAVRA*)
+              const prefix = pattern.substring(0, pattern.length - 1);
+              isMatch = normalizedDescription.startsWith(prefix);
+            }
+            
+            if (isMatch) return false;
+          }
+          
+          return true;
+        });
+        
+        // Ordenar por data (mais recente primeiro)
+        uncategorizedTxs.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        setUncategorizedTransactions(uncategorizedTxs);
+        setFilteredTransactions(uncategorizedTxs);
+        setProgress({ 
+          completed: allTransactions.length - uncategorizedTxs.length, 
+          total: allTransactions.length 
+        });
+        
+        // Identificar padrões similares para categorização rápida
+        findSimilarPatterns(uncategorizedTxs);
+        
+        // Gerar sugestões de categorias com base em descrições
+        generateCategorySuggestions(uncategorizedTxs);
+      } catch (error) {
+        console.error("Erro ao carregar transações não categorizadas:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadUncategorizedTransactions();
+  }, [selectedPeriod]);
 
   // Transforma categorias no formato necessário para a interface
   const formatCategoriesForDropdown = () => {
@@ -366,117 +488,6 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
     
     return dropdownOptions;
   };
-
-  // Carregar transações não categorizadas
-  useEffect(() => {
-    if (!selectedPeriod) {
-      setLoading(false);
-      return;
-    }
-
-    const loadUncategorizedTransactions = async () => {
-      setLoading(true);
-      try {
-        const currentUser = auth.currentUser;
-        if (!currentUser) return;
-
-        // 1. Buscar transações categorizadas para obter IDs
-        const categorizedQuery = query(
-          collection(db, "transactions"),
-          where("userId", "==", currentUser.uid),
-          where("period", "==", selectedPeriod)
-        );
-        
-        const categorizedSnapshot = await getDocs(categorizedQuery);
-        const categorizedIds = new Set();
-        
-        categorizedSnapshot.forEach(doc => {
-          const data = doc.data();
-          if (data.transactionId) {
-            categorizedIds.add(data.transactionId);
-          }
-        });
-        
-        // 2. Buscar arquivos OFX do período
-        const ofxFilesQuery = query(
-          collection(db, "ofxFiles"),
-          where("userId", "==", currentUser.uid),
-          where("period", "==", selectedPeriod)
-        );
-
-        const ofxSnapshot = await getDocs(ofxFilesQuery);
-        let uncategorizedTxs = [];
-
-        ofxSnapshot.forEach((doc) => {
-          const fileData = doc.data();
-          
-          if (fileData.rawTransactions && Array.isArray(fileData.rawTransactions)) {
-            // Filtrar transações que não foram processadas
-            const uncategorizedInFile = fileData.rawTransactions.filter(
-              tx => !categorizedIds.has(tx.id)
-            );
-            
-            // Adicionar metadados do período
-            const txsWithMetadata = uncategorizedInFile.map(tx => ({
-              ...tx,
-              date: tx.date instanceof Date ? tx.date : new Date(tx.date),
-              period: fileData.period,
-              periodLabel: fileData.periodLabel,
-              month: fileData.month,
-              year: fileData.year
-            }));
-            
-            uncategorizedTxs = [...uncategorizedTxs, ...txsWithMetadata];
-          }
-        });
-        
-        // Ordenar por data (mais recente primeiro)
-        uncategorizedTxs.sort((a, b) => new Date(b.date) - new Date(a.date));
-        
-        setUncategorizedTransactions(uncategorizedTxs);
-        setFilteredTransactions(uncategorizedTxs);
-        setProgress({ completed: 0, total: uncategorizedTxs.length });
-        
-        // Identificar padrões similares para categorização rápida
-        findSimilarPatterns(uncategorizedTxs);
-        
-        // Gerar sugestões de categorias com base em descrições
-        generateCategorySuggestions(uncategorizedTxs);
-      } catch (error) {
-        console.error("Erro ao carregar transações não categorizadas:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadUncategorizedTransactions();
-  }, [selectedPeriod, categories]);
-
-  // Filtrar transações quando mudar a busca ou ordenação
-  useEffect(() => {
-    let filtered = [...uncategorizedTransactions];
-    
-    // Aplicar filtro de busca
-    if (searchTerm) {
-      filtered = filtered.filter(tx => 
-        tx.description?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-    
-    // Aplicar ordenação
-    if (sortOrder === 'date') {
-      filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
-    } else if (sortOrder === 'amount_desc') {
-      filtered.sort((a, b) => b.amount - a.amount);
-    } else if (sortOrder === 'amount_asc') {
-      filtered.sort((a, b) => a.amount - b.amount);
-    } else if (sortOrder === 'description') {
-      filtered.sort((a, b) => a.description?.localeCompare(b.description));
-    }
-    
-    setFilteredTransactions(filtered);
-    setCurrentPage(1); // Voltar para a primeira página ao filtrar
-  }, [searchTerm, sortOrder, uncategorizedTransactions]);
 
   // Encontrar padrões similares para categorização rápida
   const findSimilarPatterns = (transactions) => {
@@ -540,7 +551,9 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
       'salário': 'DESPESAS OPERACIONAIS.Salário',
       'pagamento': 'DESPESAS OPERACIONAIS.Outras Despesas ADM',
       'bebida': 'CUSTOS DAS MERCADORIAS VENDIDAS (CMV).Bebidas',
-      'água': 'DESPESAS OPERACIONAIS.Água / Esgoto (Sanepar)'
+      'água': 'DESPESAS OPERACIONAIS.Água / Esgoto (Sanepar)',
+      'pix': 'RECEITA.PIX',
+      'maquininha': 'RECEITA.PIX'
     };
     
     transactions.forEach(tx => {
@@ -555,6 +568,11 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
           txSuggestions.add(category);
         }
       });
+      
+      // Verificar padrões específicos
+      if (description.endsWith("- pix | maquininha") || description.endsWith("| maquininha")) {
+        txSuggestions.add('RECEITA.PIX');
+      }
       
       // Se for um valor negativo, provavelmente é uma despesa
       if (tx.amount < 0 && txSuggestions.size === 0) {
@@ -573,6 +591,32 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
     
     setCategorySuggestions(suggestions);
   };
+
+  // Filtrar transações quando mudar a busca ou ordenação
+  useEffect(() => {
+    let filtered = [...uncategorizedTransactions];
+    
+    // Aplicar filtro de busca
+    if (searchTerm) {
+      filtered = filtered.filter(tx => 
+        tx.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // Aplicar ordenação
+    if (sortOrder === 'date') {
+      filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+    } else if (sortOrder === 'amount_desc') {
+      filtered.sort((a, b) => b.amount - a.amount);
+    } else if (sortOrder === 'amount_asc') {
+      filtered.sort((a, b) => a.amount - b.amount);
+    } else if (sortOrder === 'description') {
+      filtered.sort((a, b) => a.description?.localeCompare(b.description));
+    }
+    
+    setFilteredTransactions(filtered);
+    setCurrentPage(1); // Voltar para a primeira página ao filtrar
+  }, [searchTerm, sortOrder, uncategorizedTransactions]);
 
   // Formatar data para exibição
   const formatDate = (date) => {
@@ -613,6 +657,139 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
     setSelectedTransactions({});
   };
 
+  // Nova função para detectar padrões comuns nas descrições
+  const detectPatterns = (transactions) => {
+    // Objeto para armazenar padrões detectados e suas transações correspondentes
+    const patterns = {};
+    
+    // 1. Verificar se há padrões de sufixo (terminando com X)
+    const suffixPatterns = {};
+    transactions.forEach(tx => {
+      const desc = tx.description?.trim();
+      if (!desc) return;
+      
+      // Verificar por sufixos comuns
+      const suffixes = [
+        " - pix | maquininha",
+        " | maquininha",
+        " maquininha",
+        " - pix",
+        " pix"
+      ];
+      
+      for (const suffix of suffixes) {
+        if (desc.toLowerCase().endsWith(suffix.toLowerCase())) {
+          const patternKey = `*${suffix.toLowerCase()}`;
+          if (!suffixPatterns[patternKey]) {
+            suffixPatterns[patternKey] = [];
+          }
+          suffixPatterns[patternKey].push(tx.id);
+          break; // Encontramos um sufixo, não precisamos verificar os outros
+        }
+      }
+    });
+    
+    // 2. Verificar se há padrões de prefixo (começando com X)
+    const prefixPatterns = {};
+    transactions.forEach(tx => {
+      const desc = tx.description?.trim();
+      if (!desc) return;
+      
+      // Verificar por prefixos comuns
+      const prefixes = [
+        "pix ",
+        "transferência ",
+        "pagamento ",
+        "recebimento "
+      ];
+      
+      for (const prefix of prefixes) {
+        if (desc.toLowerCase().startsWith(prefix.toLowerCase())) {
+          const patternKey = `${prefix.toLowerCase()}*`;
+          if (!prefixPatterns[patternKey]) {
+            prefixPatterns[patternKey] = [];
+          }
+          prefixPatterns[patternKey].push(tx.id);
+          break; // Encontramos um prefixo, não precisamos verificar os outros
+        }
+      }
+    });
+    
+    // 3. Verificar palavras-chave que aparecem em qualquer lugar da descrição
+    const keywordPatterns = {};
+    transactions.forEach(tx => {
+      const desc = tx.description?.trim().toLowerCase();
+      if (!desc) return;
+      
+      // Verificar por palavras-chave comuns
+      const keywords = [
+        "transferencia",
+        "pagamento",
+        "deposito",
+        "cheque",
+        "recebimento"
+      ];
+      
+      for (const keyword of keywords) {
+        if (desc.includes(keyword.toLowerCase())) {
+          const patternKey = `*${keyword.toLowerCase()}*`;
+          if (!keywordPatterns[patternKey]) {
+            keywordPatterns[patternKey] = [];
+          }
+          keywordPatterns[patternKey].push(tx.id);
+          break; // Encontramos uma palavra-chave, não precisamos verificar as outras
+        }
+      }
+    });
+    
+    // 4. Priorizar padrões: primeiro sufixos, depois prefixos, depois palavras-chave
+    // Só usamos um tipo de padrão se ele cobrir todas as transações selecionadas
+    const transactionCount = transactions.length;
+    
+    // Verificar padrões de sufixo primeiro
+    for (const [pattern, txIds] of Object.entries(suffixPatterns)) {
+      if (txIds.length === transactionCount) {
+        patterns[pattern] = txIds;
+        return patterns; // Encontramos um padrão que cobre todas as transações
+      }
+    }
+    
+    // Se não encontramos sufixos completos, verificar prefixos
+    for (const [pattern, txIds] of Object.entries(prefixPatterns)) {
+      if (txIds.length === transactionCount) {
+        patterns[pattern] = txIds;
+        return patterns;
+      }
+    }
+    
+    // Se não encontramos prefixos completos, verificar palavras-chave
+    for (const [pattern, txIds] of Object.entries(keywordPatterns)) {
+      if (txIds.length === transactionCount) {
+        patterns[pattern] = txIds;
+        return patterns;
+      }
+    }
+    
+    // 5. Se não conseguimos um padrão que cubra todas as transações,
+    // tentamos agrupar transações com padrões semelhantes
+    
+    // Primeiro, tentamos os sufixos mais comuns
+    let bestSuffixPattern = "";
+    let bestSuffixCount = 0;
+    for (const [pattern, txIds] of Object.entries(suffixPatterns)) {
+      if (txIds.length > bestSuffixCount) {
+        bestSuffixPattern = pattern;
+        bestSuffixCount = txIds.length;
+      }
+    }
+    
+    if (bestSuffixCount > 1) {
+      patterns[bestSuffixPattern] = suffixPatterns[bestSuffixPattern];
+    }
+    
+    return patterns;
+  };
+
   // Aplicar categoria às transações selecionadas
   const handleApplyCategory = async () => {
     if (!selectedCategory) {
@@ -632,58 +809,102 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
     try {
       const currentUser = auth.currentUser;
       
-      // Atualizar status de progresso
-      setProgress(prev => ({
-        ...prev,
-        completed: prev.completed
-      }));
+      // 1. Buscar as transações selecionadas
+      const selectedTransactionsData = uncategorizedTransactions.filter(tx => selectedIds.includes(tx.id));
+      const fileTransactions = {}; // Organizar transações por arquivo para atualização
       
-      // Localizar transações selecionadas
-      const transactionsToSave = selectedIds.map(id => {
-        const tx = uncategorizedTransactions.find(t => t.id === id);
-        return {
-          userId: currentUser.uid,
-          fileId: "", // Não temos esta informação no contexto atual
-          transactionId: tx.id,
-          date: new Date(tx.date),
-          amount: tx.amount,
-          description: tx.description,
-          category: categoryName,
-          categoryPath: selectedCategory,
-          groupName: groupName,
-          period: tx.period,
-          periodLabel: tx.periodLabel,
-          month: tx.month,
-          year: tx.year,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-      });
+      // 2. Detectar padrões nas transações selecionadas
+      const patterns = detectPatterns(selectedTransactionsData);
       
-      // Salvar na coleção de transações
-      for (const tx of transactionsToSave) {
-        await addDoc(collection(db, "transactions"), tx);
+      // 3. Atualizar/criar mapeamentos de categorias
+      const newMappings = { ...categoryMappings };
+      
+      // Primeiro, tentar usar os padrões identificados
+      if (Object.keys(patterns).length > 0) {
+        // Adicionar padrões ao mapeamento
+        for (const [pattern, txIds] of Object.entries(patterns)) {
+          // Criar um padrão de mapeamento no formato: *PADRÃO para sufixos ou PADRÃO* para prefixos
+          const mappingKey = pattern.startsWith("*") || pattern.endsWith("*") 
+            ? pattern 
+            : `*${pattern}*`;  // Por padrão, usamos o padrão como substring
+          
+          newMappings[mappingKey] = {
+            categoryName: categoryName,
+            categoryPath: selectedCategory,
+            groupName: groupName,
+            lastUsed: new Date(),
+            isPattern: true // Indicar que é um padrão, não um match exato
+          };
+          
+          // Agrupar estas transações por fileId
+          txIds.forEach(txId => {
+            const tx = selectedTransactionsData.find(t => t.id === txId);
+            if (tx?.fileId) {
+              if (!fileTransactions[tx.fileId]) {
+                fileTransactions[tx.fileId] = [];
+              }
+              fileTransactions[tx.fileId].push(tx.id);
+            }
+          });
+        }
+      } else {
+        // Se não foi possível detectar padrões, recorrer à abordagem de descrição exata
+        selectedTransactionsData.forEach(tx => {
+          // Adicionar ao mapeamento
+          const normalizedDescription = tx.description?.trim().toLowerCase();
+          if (normalizedDescription) {
+            newMappings[normalizedDescription] = {
+              categoryName: categoryName,
+              categoryPath: selectedCategory,
+              groupName: groupName,
+              lastUsed: new Date()
+            };
+          }
+          
+          // Agrupar por fileId para atualização
+          if (tx.fileId) {
+            if (!fileTransactions[tx.fileId]) {
+              fileTransactions[tx.fileId] = [];
+            }
+            fileTransactions[tx.fileId].push(tx.id);
+          }
+        });
       }
       
-      // Remover transações categorizadas da lista
-      const newUncategorized = uncategorizedTransactions.filter(
-        tx => !selectedIds.includes(tx.id)
-      );
+      // 4. Salvar mapeamentos de categorias no Firestore
+      await setDoc(doc(db, "categoryMappings", currentUser.uid), {
+        userId: currentUser.uid,
+        mappings: newMappings,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
       
+      // 5. Atualizar documentos de arquivos OFX para marcar transações categorizadas
+      for (const [fileId, transactionIds] of Object.entries(fileTransactions)) {
+        await updateDoc(doc(db, "ofxFiles", fileId), {
+          categorizedTransactions: arrayUnion(...transactionIds),
+          lastUpdated: serverTimestamp()
+        });
+      }
+      
+      // 6. Atualizar estado local
+      setCategoryMappings(newMappings);
+      
+      // 7. Remover transações categorizadas da lista
+      const newUncategorized = uncategorizedTransactions.filter(tx => !selectedIds.includes(tx.id));
       setUncategorizedTransactions(newUncategorized);
+      
+      // 8. Resetar seleções e atualizar progresso
       setSelectedTransactions({});
       setSelectedCategory('');
-      
-      // Atualizar progresso
       setProgress(prev => ({
         total: prev.total,
         completed: prev.completed + selectedIds.length
       }));
       
-      // Atualizar padrões similares
+      // 9. Atualizar padrões similares
       findSimilarPatterns(newUncategorized);
       
-      // Recarregar o dashboard após salvar
+      // 10. Recarregar o dashboard
       if (refreshDashboard) {
         refreshDashboard();
       }
@@ -832,6 +1053,7 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
 
   return (
     <div style={style.container}>
+      {/* Overlay de carregamento durante salvamento */}
       {saving && (
         <div style={style.loadingOverlay}>
           <div>
@@ -845,6 +1067,22 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
         <h2 style={style.headerTitle}>Categorizar Transações</h2>
       </div>
 
+      {/* Informações sobre o novo sistema */}
+      <div style={style.infoCard}>
+        <h3 style={style.infoTitle}>
+          Sobre a categorização
+        </h3>
+        <p style={style.infoText}>
+          Agora utilizamos um sistema mais eficiente: em vez de salvar cada transação individualmente, 
+          salvamos apenas os mapeamentos entre descrições e categorias. Isso permite categorizar automaticamente 
+          transações semelhantes no futuro.
+        </p>
+        <p style={style.infoText}>
+          Quando você categoriza uma transação, todas as futuras transações com a mesma descrição 
+          serão automaticamente associadas à mesma categoria.
+        </p>
+      </div>
+
       {/* Status e progresso */}
       <div style={style.statsContainer}>
         <div style={style.statCard}>
@@ -852,7 +1090,9 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
           <div style={style.statLabel}>Transações não categorizadas</div>
         </div>
         <div style={style.statCard}>
-          <div style={style.statValue}>{formatCurrency(uncategorizedTransactions.reduce((sum, tx) => sum + tx.amount, 0))}</div>
+          <div style={style.statValue}>
+            {formatCurrency(uncategorizedTransactions.reduce((sum, tx) => sum + tx.amount, 0))}
+          </div>
           <div style={style.statLabel}>Valor total</div>
         </div>
         <div style={style.statCard}>
@@ -996,41 +1236,37 @@ const DreCategorizationTab = ({ selectedPeriod, categories, financialCategories,
               style={{
                 ...style.transactionItem,
                 ...(index % 2 === 0 ? {} : style.transactionItemHover),
-                ...(selectedTransactions[transaction.id] ? { backgroundColor: '#e3f2fd' } : {})
+                ...(selectedTransactions[transaction.id] ? style.transactionItemSelected : {})
               }}
             >
-              <div style={{ width: '40px', padding: '16px', display: 'flex', alignItems: 'center' }}>
-                <input 
-                  type="checkbox" 
-                  checked={!!selectedTransactions[transaction.id]} 
-                  onChange={() => handleToggleSelect(transaction.id)}
-                  style={{ width: '18px', height: '18px' }}
-                />
-              </div>
+              <input 
+                type="checkbox" 
+                checked={!!selectedTransactions[transaction.id]} 
+                onChange={() => handleToggleSelect(transaction.id)}
+                style={style.checkbox}
+              />
               
               <div style={style.transactionDate}>
                 {formatDate(transaction.date)}
               </div>
               
               <div style={style.transactionDescription}>
-                <div>
-                  <div>{transaction.description}</div>
-                  
-                  {/* Sugestões de categorias */}
-                  {categorySuggestions[transaction.id] && (
-                    <div style={style.suggestionChips}>
-                      {categorySuggestions[transaction.id].map((category, idx) => (
-                        <div 
-                          key={idx} 
-                          style={style.suggestionChip}
-                          onClick={() => handleApplySuggestion(transaction.id, category)}
-                        >
-                          {category.split('.')[1]}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <div>{transaction.description}</div>
+                
+                {/* Sugestões de categorias */}
+                {categorySuggestions[transaction.id] && (
+                  <div style={style.suggestionChips}>
+                    {categorySuggestions[transaction.id].map((category, idx) => (
+                      <div 
+                        key={idx} 
+                        style={style.suggestionChip}
+                        onClick={() => handleApplySuggestion(transaction.id, category)}
+                      >
+                        {category.split('.')[1]}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               
               <div 
