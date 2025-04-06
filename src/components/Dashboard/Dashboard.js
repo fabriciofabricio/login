@@ -1,21 +1,35 @@
-// src/components/Dashboard/Dashboard.js
+// src/components/Dashboard/Dashboard.js (updated with DRE tab)
 import React, { useState, useEffect } from "react";
 import { auth, db } from "../../firebase/config";
 import { signOut } from "firebase/auth";
 import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Transactions from "../Transactions/Transactions";
+import DRE from "../DRE/DRE"; // Importação do componente DRE
 import "./Dashboard.css";
 
 // Componente principal do Dashboard
-const Dashboard = () => {
+const Dashboard = ({ activeTab: initialActiveTab }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [categoriesData, setCategoriesData] = useState(null);
   const [recentTransactions, setRecentTransactions] = useState([]);
-  const [activeTab, setActiveTab] = useState("categories"); // 'categories' ou 'transactions'
+  const [activeTab, setActiveTab] = useState(initialActiveTab || "categories"); // 'categories', 'transactions' ou 'dre'
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // Se o usuário navegar diretamente para /transactions, ativar a aba de transações
+    if (location.pathname === "/transactions" && activeTab !== "transactions") {
+      setActiveTab("transactions");
+    }
+    
+    // Se o usuário navegar diretamente para /dre, ativar a aba de DRE
+    if (location.pathname === "/dre" && activeTab !== "dre") {
+      setActiveTab("dre");
+    }
+  }, [location.pathname, activeTab]);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -185,6 +199,12 @@ const Dashboard = () => {
         >
           Transações
         </button>
+        <button 
+          className={`tab-button ${activeTab === 'dre' ? 'active' : ''}`}
+          onClick={() => setActiveTab('dre')}
+        >
+          DRE
+        </button>
       </div>
 
       {activeTab === 'categories' ? (
@@ -290,9 +310,26 @@ const Dashboard = () => {
               </div>
             </div>
           )}
+          
+          {/* Nova seção com cards e ações rápidas */}
+          <div className="dashboard-card">
+            <h2>Relatórios Financeiros</h2>
+            <div className="reports-grid">
+              <div className="report-card" onClick={() => setActiveTab('dre')}>
+                <div className="report-icon">📊</div>
+                <div className="report-info">
+                  <h3>DRE - Demonstração do Resultado</h3>
+                  <p>Visualize a demonstração de resultado do exercício com base nas suas transações categorizadas.</p>
+                </div>
+              </div>
+              {/* Aqui você pode adicionar outros cards para outros relatórios no futuro */}
+            </div>
+          </div>
         </div>
-      ) : (
+      ) : activeTab === 'transactions' ? (
         <Transactions />
+      ) : (
+        <DRE />
       )}
     </div>
   );

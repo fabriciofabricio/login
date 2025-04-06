@@ -1,4 +1,4 @@
-// src/App.js
+// src/App.js (with DRE component integrated)
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
@@ -7,6 +7,7 @@ import Login from "./components/Auth/Login";
 import Register from "./components/Auth/Register";
 import CategorySelection from "./components/Auth/CategorySelection";
 import Dashboard from "./components/Dashboard/Dashboard";
+import DRE from "./components/DRE/DRE"; // Importação do novo componente
 
 // Rota protegida que requer autenticação
 const ProtectedRoute = ({ children }) => {
@@ -52,6 +53,22 @@ function App() {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/transactions" 
+          element={
+            <ProtectedRoute>
+              <Dashboard activeTab="transactions" />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/dre" 
+          element={
+            <ProtectedRoute>
+              <DRE />
             </ProtectedRoute>
           } 
         />
