@@ -21,13 +21,10 @@ const CategorySelection = () => {
       displayName: "RECEITA",
       items: [
         "Dinheiro",
-        "Cartão de Débito",
-        "Cartão de Crédito",
-        "PIX",
-        "TED",
         "Cheque",
         "Boleto",
         "Transferência",
+        "Cartão / Pix / TED",
         "Ifood",
         "Outras Entradas"
       ]
